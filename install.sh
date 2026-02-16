@@ -19,28 +19,13 @@ fi
 apt update
 apt install -y nginx certbot python3-certbot-nginx
 
+# Create HTTP only config first
 cat > /etc/nginx/sites-available/$DOMAIN <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
-    return 301 https://\$host\$request_uri;
-}
 
-server {
-    listen 443 ssl http2;
-    server_name $DOMAIN;
-
-    client_max_body_size 100M;
-
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_tickets off;
-
-    add_header Strict-Transport-Security "max-age=15768000" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    client_max_body_size 100m;
 
     location / {
         proxy_pass http://127.0.0.1:$PORT;
@@ -51,7 +36,6 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
     }
 }
 EOF
@@ -61,11 +45,20 @@ ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
 nginx -t
 systemctl reload nginx
 
+# Get SSL and auto configure
 certbot --nginx \
   --non-interactive \
   --agree-tos \
+  --redirect \
   --email $EMAIL \
   -d $DOMAIN
+
+# Add HSTS after certbot configured SSL
+sed -i '/server_name/a \
+    add_header Strict-Transport-Security "max-age=15768000" always;' /etc/nginx/sites-available/$DOMAIN
+
+nginx -t
+systemctl reload nginx
 
 systemctl enable certbot.timer
 systemctl start certbot.timer
